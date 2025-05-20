@@ -8,6 +8,7 @@ from unstract.connectors.databases.exceptions import (
     FeatureNotSupportedException,
     InvalidSchemaException,
     InvalidSyntaxException,
+    OperationalException,
     UnderfinedTableException,
     ValueTooLongException,
 )
@@ -42,12 +43,8 @@ class PsycoPgHandler:
             logger.error(f"Invalid syntax in creating/inserting data: {e.pgerror}")
             raise InvalidSyntaxException(detail=e.pgerror, database=database) from e
         except PsycopgError.FeatureNotSupported as e:
-            logger.error(
-                f"feature not supported in creating/inserting data: {e.pgerror}"
-            )
-            raise FeatureNotSupportedException(
-                detail=e.pgerror, database=database
-            ) from e
+            logger.error(f"feature not supported in creating/inserting data: {e.pgerror}")
+            raise FeatureNotSupportedException(detail=e.pgerror, database=database) from e
         except (
             PsycopgError.StringDataRightTruncation,
             PsycopgError.InternalError_,
@@ -62,3 +59,6 @@ class PsycoPgHandler:
                 schema=schema,
                 table_name=table_name,
             ) from e
+        except PsycopgError.OperationalError as e:
+            logger.error(f"Operational error in creating/inserting data: {e.pgerror}")
+            raise OperationalException(detail=e.pgerror, database=database) from e

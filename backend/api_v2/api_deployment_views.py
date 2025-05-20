@@ -1,19 +1,8 @@
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from api_v2.constants import ApiExecution
-from api_v2.deployment_helper import DeploymentHelper
-from api_v2.exceptions import NoActiveAPIKeyError
-from api_v2.models import APIDeployment
-from api_v2.postman_collection.dto import PostmanCollection
-from api_v2.serializers import (
-    APIDeploymentListSerializer,
-    APIDeploymentSerializer,
-    DeploymentResponseSerializer,
-    ExecutionQuerySerializer,
-    ExecutionRequestSerializer,
-)
+from django.conf import settings
 from django.db.models import QuerySet
 from django.http import HttpResponse
 from permissions.permission import IsOwner
@@ -25,13 +14,24 @@ from rest_framework.serializers import Serializer
 from utils.enums import CeleryTaskState
 from workflow_manager.workflow_v2.dto import ExecutionResponse
 
+from api_v2.api_deployment_dto_registry import ApiDeploymentDTORegistry
+from api_v2.constants import ApiExecution
+from api_v2.deployment_helper import DeploymentHelper
+from api_v2.exceptions import NoActiveAPIKeyError
+from api_v2.models import APIDeployment
+from api_v2.serializers import (
+    APIDeploymentListSerializer,
+    APIDeploymentSerializer,
+    DeploymentResponseSerializer,
+    ExecutionQuerySerializer,
+    ExecutionRequestSerializer,
+)
+
 logger = logging.getLogger(__name__)
 
 
 class DeploymentExecution(views.APIView):
-    def initialize_request(
-        self, request: Request, *args: Any, **kwargs: Any
-    ) -> Request:
+    def initialize_request(self, request: Request, *args: Any, **kwargs: Any) -> Request:
         """To remove csrf request for public API.
 
         Args:
@@ -40,7 +40,7 @@ class DeploymentExecution(views.APIView):
         Returns:
             Request: _description_
         """
-        setattr(request, "csrf_processing_done", True)
+        request.csrf_processing_done = True
         return super().initialize_request(request, *args, **kwargs)
 
     @DeploymentHelper.validate_api_key
@@ -84,14 +84,13 @@ class DeploymentExecution(views.APIView):
         include_metrics = serializer.validated_data.get(ApiExecution.INCLUDE_METRICS)
 
         # Fetch execution status
-        response: ExecutionResponse = DeploymentHelper.get_execution_status(
-            execution_id
-        )
+        response: ExecutionResponse = DeploymentHelper.get_execution_status(execution_id)
         # Determine response status
         response_status = status.HTTP_422_UNPROCESSABLE_ENTITY
         if response.execution_status == CeleryTaskState.COMPLETED.value:
             response_status = status.HTTP_200_OK
-            response.remove_result_metadata_keys(["highlight_data"])
+            if not settings.ENABLE_HIGHLIGHT_API_DEPLOYMENT:
+                response.remove_result_metadata_keys(["highlight_data"])
             if not include_metadata:
                 response.remove_result_metadata_keys()
             if not include_metrics:
@@ -111,7 +110,7 @@ class DeploymentExecution(views.APIView):
 class APIDeploymentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsOwner]
 
-    def get_queryset(self) -> Optional[QuerySet]:
+    def get_queryset(self) -> QuerySet | None:
         return APIDeployment.objects.filter(created_by=self.request.user)
 
     def get_serializer_class(self) -> serializers.Serializer:
@@ -120,7 +119,7 @@ class APIDeploymentViewSet(viewsets.ModelViewSet):
         return APIDeploymentSerializer
 
     @action(detail=True, methods=["get"])
-    def fetch_one(self, request: Request, pk: Optional[str] = None) -> Response:
+    def fetch_one(self, request: Request, pk: str | None = None) -> Response:
         """Custom action to fetch a single instance."""
         instance = self.get_object()
         serializer = self.get_serializer(instance)
@@ -132,9 +131,7 @@ class APIDeploymentViewSet(viewsets.ModelViewSet):
         serializer: Serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        api_key = DeploymentHelper.create_api_key(
-            serializer=serializer, request=request
-        )
+        api_key = DeploymentHelper.create_api_key(serializer=serializer, request=request)
         response_serializer = DeploymentResponseSerializer(
             {"api_key": api_key.api_key, **serializer.data}
         )
@@ -148,7 +145,7 @@ class APIDeploymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def download_postman_collection(
-        self, request: Request, pk: Optional[str] = None
+        self, request: Request, pk: str | None = None
     ) -> Response:
         """Downloads a Postman Collection of the API deployment instance."""
         instance = self.get_object()
@@ -156,8 +153,8 @@ class APIDeploymentViewSet(viewsets.ModelViewSet):
         if not api_key_inst:
             logger.error(f"No active API key set for deployment {instance.pk}")
             raise NoActiveAPIKeyError(deployment_name=instance.display_name)
-
-        postman_collection = PostmanCollection.create(
+        dto_class = ApiDeploymentDTORegistry.get_dto()
+        postman_collection = dto_class.create(
             instance=instance, api_key=api_key_inst.api_key
         )
         response = HttpResponse(

@@ -1,17 +1,17 @@
-from typing import Any, Optional
+from typing import Any
 
 
 class ConnectorBaseException(Exception):
     """Base class for exceptions from Unstract connectors."""
 
     def __init__(
-        self, *args: Any, user_message: Optional[str] = None, **kwargs: Any
+        self, *args: Any, user_message: str | None = None, **kwargs: Any
     ) -> None:
         super().__init__(*args, **kwargs)
         self._user_message = user_message
 
     @property
-    def user_message(self) -> Optional[str]:
+    def user_message(self) -> str | None:
         return self._user_message
 
 
@@ -51,6 +51,14 @@ class AzureHttpError(ConnectorError):
 
 class PermissionDeniedError(ConnectorError):
     """Handles permission denied error from fs connector.
+
+    Args:
+        ConnectorError (Class): Inherits class ConnectorError
+    """
+
+
+class FileHashNotFound(ConnectorError):
+    """Handles file hash not found error from fs connector.
 
     Args:
         ConnectorError (Class): Inherits class ConnectorError

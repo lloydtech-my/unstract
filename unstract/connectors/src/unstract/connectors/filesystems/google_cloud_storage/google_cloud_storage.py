@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -13,11 +14,27 @@ logger = logging.getLogger(__name__)
 
 class GoogleCloudStorageFS(UnstractFileSystem):
     def __init__(self, settings: dict[str, Any]):
+        """Initializing gcs
+
+        Args:
+            settings (dict[str, Any]): A json dict containing json connection string
+        Raises:
+            ConnectorError: Error raised when connection initialization fails
+        """
         super().__init__("GoogleCloudStorage")
-        self.bucket = settings.get("bucket", "")
         project_id = settings.get("project_id", "")
-        json_credentials = json.loads(settings.get("json_credentials", "{}"))
-        self.gcs_fs = GCSFileSystem(token=json_credentials, project=project_id)
+        json_credentials_str = settings.get("json_credentials", "{}")
+        try:
+            json_credentials = json.loads(json_credentials_str)
+            self.gcs_fs = GCSFileSystem(token=json_credentials, project=project_id)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON credentials: {str(e)}")
+            error_msg = (
+                "Failed to connect to Google Cloud Storage. \n"
+                "GCS credentials are not in proper JSON format. \n"
+                f"Error: \n```\n{str(e)}\n```"
+            )
+            raise ConnectorError(error_msg) from e
 
     @staticmethod
     def get_id() -> str:
@@ -61,14 +78,37 @@ class GoogleCloudStorageFS(UnstractFileSystem):
     def get_fsspec_fs(self) -> GCSFileSystem:
         return self.gcs_fs
 
+    def extract_metadata_file_hash(self, metadata: dict[str, Any]) -> str | None:
+        """Extracts a unique file hash from metadata.
+
+        Args:
+            metadata (dict): Metadata dictionary obtained from fsspec or cloud API.
+
+        Returns:
+            Optional[str]: The file hash in hexadecimal format or None if not found.
+        """
+        # Extracts md5Hash (Base64) for GCS
+        file_hash = metadata.get("md5Hash")
+        if file_hash:
+            return base64.b64decode(file_hash).hex()
+        logger.error(f"[GCS] File hash not found for the metadata: {metadata}")
+        return None
+
     def test_credentials(self) -> bool:
-        """To test credentials for Google Cloud Storage."""
+        """Test Google Cloud Storage credentials by accessing the root path info.
+
+        Raises:
+            ConnectorError: connector-error
+
+        Returns:
+            boolean: true if test-connection is successful
+        """
         try:
-            is_dir = bool(self.get_fsspec_fs().isdir(self.bucket))
-            if not is_dir:
-                raise RuntimeError("Could not access root directory.")
+            self.get_fsspec_fs().info("/")
         except Exception as e:
-            raise ConnectorError(
-                f"Error from Google Cloud Storage while testing connection: {str(e)}"
-            ) from e
+            error_msg = (
+                "Error from Google Cloud Storage while testing connection. \n"
+                f"Error: \n```\n{str(e)}\n```"
+            )
+            raise ConnectorError(error_msg) from e
         return True

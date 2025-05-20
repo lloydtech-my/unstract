@@ -6,13 +6,14 @@ from account_v2.models import User
 from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
+from utils.models.base_model import BaseModel
+from utils.user_context import UserContext
+
 from prompt_studio.prompt_profile_manager_v2.models import ProfileManager
 from prompt_studio.prompt_studio_core_v2.prompt_ide_base_tool import PromptIdeBaseTool
 from prompt_studio.prompt_studio_document_manager_v2.models import DocumentManager
 from unstract.sdk.constants import LogLevel
 from unstract.sdk.vector_db import VectorDB
-from utils.models.base_model import BaseModel
-from utils.user_context import UserContext
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,12 @@ class IndexManager(BaseModel):
         default=list,
         null=False,
         blank=False,
+    )
+    extraction_status = models.JSONField(
+        db_comment="Extraction status for documents",
+        null=False,
+        blank=False,
+        default=dict,
     )
 
     created_by = models.ForeignKey(

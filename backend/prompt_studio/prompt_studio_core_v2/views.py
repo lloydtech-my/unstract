@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from account_v2.custom_exceptions import DuplicateData
 from django.db import IntegrityError
@@ -9,7 +9,17 @@ from django.http import HttpRequest
 from file_management.constants import FileInformationKey as FileKey
 from file_management.exceptions import FileNotFound
 from permissions.permission import IsOwner, IsOwnerOrSharedUser
-from prompt_studio.processor_loader import get_plugin_class_by_name, load_plugins
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.versioning import URLPathVersioning
+from tool_instance_v2.models import ToolInstance
+from utils.file_storage.helpers.prompt_studio_file_helper import PromptStudioFileHelper
+from utils.user_session import UserSessionUtils
+
+from prompt_studio.processor_loader import get_plugin_class_by_name
+from prompt_studio.processor_loader import load_plugins as load_processor_plugins
 from prompt_studio.prompt_profile_manager_v2.constants import (
     ProfileManagerErrors,
     ProfileManagerKeys,
@@ -46,15 +56,7 @@ from prompt_studio.prompt_studio_registry_v2.serializers import (
 from prompt_studio.prompt_studio_v2.constants import ToolStudioPromptErrors
 from prompt_studio.prompt_studio_v2.models import ToolStudioPrompt
 from prompt_studio.prompt_studio_v2.serializers import ToolStudioPromptSerializer
-from rest_framework import status, viewsets
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.versioning import URLPathVersioning
-from tool_instance_v2.models import ToolInstance
 from unstract.sdk.utils.common_utils import CommonUtils
-from utils.file_storage.helpers.prompt_studio_file_helper import PromptStudioFileHelper
-from utils.user_session import UserSessionUtils
 
 from .models import CustomTool
 from .serializers import (
@@ -75,7 +77,7 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
 
     serializer_class = CustomToolSerializer
 
-    processor_plugins = load_plugins()
+    processor_plugins = load_processor_plugins()
 
     def get_permissions(self) -> list[Any]:
         if self.action == "destroy":
@@ -83,7 +85,7 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
 
         return [IsOwnerOrSharedUser()]
 
-    def get_queryset(self) -> Optional[QuerySet]:
+    def get_queryset(self) -> QuerySet | None:
         return CustomTool.objects.for_user(self.request.user)
 
     def create(self, request: HttpRequest) -> Response:
@@ -214,17 +216,13 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
         tool = self.get_object()
         serializer = PromptStudioIndexSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        document_id: str = serializer.validated_data.get(
-            ToolStudioPromptKeys.DOCUMENT_ID
-        )
+        document_id: str = serializer.validated_data.get(ToolStudioPromptKeys.DOCUMENT_ID)
         document: DocumentManager = DocumentManager.objects.get(pk=document_id)
         file_name: str = document.document_name
-        text_processor = get_plugin_class_by_name(
-            name="text_processor",
-            plugins=self.processor_plugins,
-        )
         # Generate a run_id
         run_id = CommonUtils.generate_uuid()
+        is_summary = tool.summarize_context
+
         unique_id = PromptStudioHelper.index_document(
             tool_id=str(tool.tool_id),
             file_name=file_name,
@@ -232,25 +230,8 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
             user_id=tool.created_by.user_id,
             document_id=document_id,
             run_id=run_id,
-            text_processor=text_processor,
+            is_summary=is_summary,
         )
-
-        usage_kwargs: dict[Any, Any] = dict()
-        usage_kwargs[ToolStudioPromptKeys.RUN_ID] = run_id
-        cls = get_plugin_class_by_name(
-            name="summarizer",
-            plugins=self.processor_plugins,
-        )
-        if cls:
-            cls.process(
-                tool_id=str(tool.tool_id),
-                file_name=file_name,
-                org_id=UserSessionUtils.get_organization_id(request),
-                user_id=tool.created_by.user_id,
-                document_id=document_id,
-                usage_kwargs=usage_kwargs.copy(),
-            )
-
         if unique_id:
             return Response(
                 {"message": "Document indexed successfully."},
@@ -282,10 +263,6 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
         if not run_id:
             # Generate a run_id
             run_id = CommonUtils.generate_uuid()
-        text_processor = get_plugin_class_by_name(
-            name="text_processor",
-            plugins=self.processor_plugins,
-        )
         response: dict[str, Any] = PromptStudioHelper.prompt_responder(
             id=id,
             tool_id=tool_id,
@@ -294,7 +271,6 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
             document_id=document_id,
             run_id=run_id,
             profile_manager_id=profile_manager,
-            text_processor=text_processor,
         )
         return Response(response, status=status.HTTP_200_OK)
 
@@ -318,23 +294,17 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
         if not run_id:
             # Generate a run_id
             run_id = CommonUtils.generate_uuid()
-        text_processor = get_plugin_class_by_name(
-            name="text_processor",
-            plugins=self.processor_plugins,
-        )
         response: dict[str, Any] = PromptStudioHelper.prompt_responder(
             tool_id=tool_id,
             org_id=UserSessionUtils.get_organization_id(request),
             user_id=custom_tool.created_by.user_id,
             document_id=document_id,
             run_id=run_id,
-            text_processor=text_processor,
         )
         return Response(response, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"])
     def list_of_shared_users(self, request: HttpRequest, pk: Any = None) -> Response:
-
         custom_tool = (
             self.get_object()
         )  # Assuming you have a get_object method in your viewset
@@ -411,12 +381,11 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
         filename_without_extension = file_name.rsplit(".", 1)[0]
         if view_type == FileViewTypes.EXTRACT:
             file_name = (
-                f"{FileViewTypes.EXTRACT.lower()}/" f"{filename_without_extension}.txt"
+                f"{FileViewTypes.EXTRACT.lower()}/{filename_without_extension}.txt"
             )
         if view_type == FileViewTypes.SUMMARIZE:
             file_name = (
-                f"{FileViewTypes.SUMMARIZE.lower()}/"
-                f"{filename_without_extension}.txt"
+                f"{FileViewTypes.SUMMARIZE.lower()}/{filename_without_extension}.txt"
             )
         try:
             contents = PromptStudioFileHelper.fetch_file_contents(
@@ -453,9 +422,7 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
                     uploaded_file, file_name
                 )
 
-            logger.info(
-                f"Uploading file: {file_name}" if file_name else "Uploading file"
-            )
+            logger.info(f"Uploading file: {file_name}" if file_name else "Uploading file")
 
             PromptStudioFileHelper.upload_for_ide(
                 org_id=UserSessionUtils.get_organization_id(request),
@@ -483,9 +450,7 @@ class PromptStudioCoreView(viewsets.ModelViewSet):
         custom_tool = self.get_object()
         serializer = FileInfoIdeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        document_id: str = serializer.validated_data.get(
-            ToolStudioPromptKeys.DOCUMENT_ID
-        )
+        document_id: str = serializer.validated_data.get(ToolStudioPromptKeys.DOCUMENT_ID)
         org_id = UserSessionUtils.get_organization_id(request)
         user_id = custom_tool.created_by.user_id
         document: DocumentManager = DocumentManager.objects.get(pk=document_id)

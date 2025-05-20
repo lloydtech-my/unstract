@@ -2,11 +2,12 @@ import uuid
 
 from account_v2.models import User
 from django.db import models
+from utils.models.base_model import BaseModel
+
 from prompt_studio.prompt_profile_manager_v2.models import ProfileManager
 from prompt_studio.prompt_studio_core_v2.models import CustomTool
 from prompt_studio.prompt_studio_document_manager_v2.models import DocumentManager
 from prompt_studio.prompt_studio_v2.models import ToolStudioPrompt
-from utils.models.base_model import BaseModel
 
 
 class PromptStudioOutputManager(BaseModel):
@@ -29,6 +30,12 @@ class PromptStudioOutputManager(BaseModel):
     )
     highlight_data = models.JSONField(
         db_comment="Field to store highlight data", editable=True, null=True, blank=True
+    )
+    confidence_data = models.JSONField(
+        db_comment="Field to store confidence data",
+        editable=True,
+        null=True,
+        blank=True,
     )
     eval_metrics = models.JSONField(
         db_column="eval_metrics",

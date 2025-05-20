@@ -15,7 +15,6 @@ from utils.models.organization_mixin import (
     DefaultOrganizationManagerMixin,
     DefaultOrganizationMixin,
 )
-from workflow_manager.workflow_v2.models import Workflow
 
 from backend.constants import FieldLengthConstants as FLC
 
@@ -43,7 +42,7 @@ class ConnectorInstance(DefaultOrganizationMixin, BaseModel):
         max_length=CONNECTOR_NAME_SIZE, null=False, blank=False
     )
     workflow = models.ForeignKey(
-        Workflow,
+        "workflow_v2.Workflow",
         on_delete=models.CASCADE,
         related_name="connector_workflow",
         null=False,
@@ -88,7 +87,8 @@ class ConnectorInstance(DefaultOrganizationMixin, BaseModel):
     # TODO: Remove if unused
     def get_connector_metadata(self) -> dict[str, str]:
         """Gets connector metadata and refreshes the tokens if needed in case
-        of OAuth."""
+        of OAuth.
+        """
         tokens_refreshed = False
         if self.connector_auth:
             (

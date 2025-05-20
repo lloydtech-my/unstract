@@ -10,9 +10,13 @@ from rest_framework.decorators import api_view
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.versioning import URLPathVersioning
-from tool_instance_v2.constants import ToolInstanceErrors
+from utils.filtering import FilterHelper
+from utils.user_session import UserSessionUtils
+from workflow_manager.workflow_v2.constants import WorkflowKey
+
+from backend.constants import RequestKey
+from tool_instance_v2.constants import ToolInstanceErrors, ToolKey
 from tool_instance_v2.constants import ToolInstanceKey as TIKey
-from tool_instance_v2.constants import ToolKey
 from tool_instance_v2.exceptions import FetchToolListFailed, ToolFunctionIsMandatory
 from tool_instance_v2.models import ToolInstance
 from tool_instance_v2.serializers import (
@@ -21,11 +25,6 @@ from tool_instance_v2.serializers import (
 from tool_instance_v2.serializers import ToolInstanceSerializer
 from tool_instance_v2.tool_instance_helper import ToolInstanceHelper
 from tool_instance_v2.tool_processor import ToolProcessor
-from utils.filtering import FilterHelper
-from utils.user_session import UserSessionUtils
-from workflow_manager.workflow_v2.constants import WorkflowKey
-
-from backend.constants import RequestKey
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +60,27 @@ def get_tool_list(request: Request) -> Response:
             raise FetchToolListFailed
 
 
+# Only GET is allowed, and this is safe.
+@api_view(["GET"])
+def prompt_studio_tool_count(request: Request) -> Response:  # NOSONAR
+    """Get count of prompt studio tools.
+
+    Returns count of valid prompt studio tools available in the Tool registry.
+    Only counts tools that have UUID as function names.
+    """
+    if request.method == "GET":
+        try:
+            logger.info("Fetching prompt studio tool count from the tool.")
+            tool_count = ToolProcessor.get_prompt_studio_tool_count(request.user)
+            return Response(
+                data={"count": tool_count},
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to fetch prompt studio tools: {exc}")
+            raise FetchToolListFailed
+
+
 class ToolInstanceViewSet(viewsets.ModelViewSet):
     versioning_class = URLPathVersioning
     serializer_class = ToolInstanceSerializer
@@ -93,7 +113,6 @@ class ToolInstanceViewSet(viewsets.ModelViewSet):
         workflow. Its an alternative to creating tool instances through
         the LLM response.
         """
-
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -108,9 +127,7 @@ class ToolInstanceViewSet(viewsets.ModelViewSet):
             instance, user=request.user
         )
         headers = self.get_success_headers(serializer.data)
-        return Response(
-            serializer.data, status=status.HTTP_201_CREATED, headers=headers
-        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def perform_destroy(self, instance: ToolInstance) -> None:
         """Deletes a tool instance and decrements successor instance's steps.

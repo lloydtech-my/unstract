@@ -1,5 +1,6 @@
 from django.urls import path
 from rest_framework.urlpatterns import format_suffix_patterns
+
 from tool_instance_v2.views import ToolInstanceViewSet
 
 from . import views
@@ -12,12 +13,7 @@ tool_instance_list = ToolInstanceViewSet.as_view(
 )
 tool_instance_detail = ToolInstanceViewSet.as_view(
     # fmt: off
-    {
-        "get": "retrieve",
-        "put": "update",
-        "patch": "partial_update",
-        "delete": "destroy"
-    }
+    {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
     # fmt: on
 )
 
@@ -42,5 +38,10 @@ urlpatterns = format_suffix_patterns(
             name="tool_instance_reorder",
         ),
         path("tool/", views.get_tool_list, name="tool_list"),
+        path(
+            "tool/prompt-studio/count/",
+            views.prompt_studio_tool_count,
+            name="prompt_studio_tool_count",
+        ),
     ]
 )

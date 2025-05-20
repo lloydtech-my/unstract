@@ -1,18 +1,8 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlencode
 
-from api_v2.api_key_validator import BaseAPIKeyValidator
-from api_v2.exceptions import (
-    ApiKeyCreateException,
-    APINotFound,
-    InactiveAPI,
-    InvalidAPIRequest,
-)
-from api_v2.key_helper import KeyHelper
-from api_v2.models import APIDeployment, APIKey
-from api_v2.serializers import APIExecutionResponseSerializer
-from api_v2.utils import APIDeploymentUtils
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from rest_framework.request import Request
 from rest_framework.serializers import Serializer
@@ -27,6 +17,18 @@ from workflow_manager.workflow_v2.enums import ExecutionStatus
 from workflow_manager.workflow_v2.execution import WorkflowExecutionServiceHelper
 from workflow_manager.workflow_v2.models import Workflow, WorkflowExecution
 from workflow_manager.workflow_v2.workflow_helper import WorkflowHelper
+
+from api_v2.api_key_validator import BaseAPIKeyValidator
+from api_v2.exceptions import (
+    ApiKeyCreateException,
+    APINotFound,
+    InactiveAPI,
+    InvalidAPIRequest,
+)
+from api_v2.key_helper import KeyHelper
+from api_v2.models import APIDeployment, APIKey
+from api_v2.serializers import APIExecutionResponseSerializer
+from api_v2.utils import APIDeploymentUtils
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,7 @@ class DeploymentHelper(BaseAPIKeyValidator):
         return func(self, request, *args, **kwargs)
 
     @staticmethod
-    def validate_api(api_deployment: Optional[APIDeployment], api_key: str) -> None:
+    def validate_api(api_deployment: APIDeployment | None, api_key: str) -> None:
         """Validating API and API key.
 
         Args:
@@ -74,11 +76,12 @@ class DeploymentHelper(BaseAPIKeyValidator):
     @staticmethod
     def validate_and_get_workflow(workflow_id: str) -> Workflow:
         """Validate that the specified workflow_id exists in the Workflow
-        model."""
+        model.
+        """
         return WorkflowHelper.get_workflow_by_id(workflow_id)
 
     @staticmethod
-    def get_api_by_id(api_id: str) -> Optional[APIDeployment]:
+    def get_api_by_id(api_id: str) -> APIDeployment | None:
         return APIDeploymentUtils.get_api_by_id(api_id=api_id)
 
     @staticmethod
@@ -101,7 +104,7 @@ class DeploymentHelper(BaseAPIKeyValidator):
     @staticmethod
     def get_deployment_by_api_name(
         api_name: str,
-    ) -> Optional[APIDeployment]:
+    ) -> APIDeployment | None:
         """Get and return the APIDeployment object by api_name."""
         try:
             api: APIDeployment = APIDeployment.objects.get(api_name=api_name)
@@ -185,7 +188,8 @@ class DeploymentHelper(BaseAPIKeyValidator):
             result.status_api = DeploymentHelper.construct_status_endpoint(
                 api_endpoint=api.api_endpoint, execution_id=execution_id
             )
-            result.remove_result_metadata_keys(["highlight_data"])
+            if not settings.ENABLE_HIGHLIGHT_API_DEPLOYMENT:
+                result.remove_result_metadata_keys(["highlight_data"])
             if not include_metadata:
                 result.remove_result_metadata_keys()
             if not include_metrics:

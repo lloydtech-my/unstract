@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 
 from fsspec.implementations.local import LocalFileSystem
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class LocalStorageFS(UnstractFileSystem):
-    def __init__(self, settings: Optional[dict] = None):  # type:ignore
+    def __init__(self, settings: dict | None = None):  # type:ignore
         super().__init__("LocalStorage")
         self.path = settings["path"]  # type:ignore
         self.local = LocalFileSystem()
@@ -58,6 +58,18 @@ class LocalStorageFS(UnstractFileSystem):
 
     def get_fsspec_fs(self) -> Any:
         return self.local
+
+    def extract_metadata_file_hash(self, metadata: dict[str, Any]) -> str | None:
+        """Extracts a unique file hash from metadata.
+
+        Args:
+            metadata (dict): Metadata dictionary obtained from fsspec.
+
+        Returns:
+            Optional[str]: The file hash in hexadecimal format or None if not found.
+        """
+        logger.error(f"[LocalStorage] File hash not found for the metadata: {metadata}")
+        return None
 
     def test_credentials(self, *args, **kwargs) -> bool:  # type:ignore
         """To test credentials for LocalStorage."""

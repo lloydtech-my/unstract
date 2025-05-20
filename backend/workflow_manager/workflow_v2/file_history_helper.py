@@ -1,7 +1,9 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from django.db.utils import IntegrityError
+
+from workflow_manager.endpoint_v2.dto import FileHash
 from workflow_manager.workflow_v2.enums import ExecutionStatus
 from workflow_manager.workflow_v2.models.file_history import FileHistory
 from workflow_manager.workflow_v2.models.workflow import Workflow
@@ -14,36 +16,40 @@ class FileHistoryHelper:
 
     @staticmethod
     def get_file_history(
-        workflow: Workflow, cache_key: Optional[str] = None
-    ) -> Optional[FileHistory]:
+        workflow: Workflow,
+        cache_key: str | None = None,
+        provider_file_uuid: str | None = None,
+    ) -> FileHistory | None:
         """Retrieve a file history record based on the cache key.
 
         Args:
             cache_key (Optional[str]): The cache key to search for.
+            provider_file_uuid (Optional[str]): The provider file UUID to search for.
 
         Returns:
             Optional[FileHistory]: The matching file history record, if found.
         """
-        if not cache_key:
+        if not cache_key and not provider_file_uuid:
             return None
         try:
-            file_history: FileHistory = FileHistory.objects.get(
-                cache_key=cache_key, workflow=workflow
-            )
+            if not cache_key:
+                return FileHistory.objects.get(
+                    provider_file_uuid=provider_file_uuid, workflow=workflow
+                )
+            return FileHistory.objects.get(cache_key=cache_key, workflow=workflow)
         except FileHistory.DoesNotExist:
             return None
-        return file_history
 
     @staticmethod
     def create_file_history(
-        cache_key: str,
+        file_hash: FileHash,
         workflow: Workflow,
         status: ExecutionStatus,
         result: Any,
-        metadata: Any,
-        error: Optional[str] = None,
-        file_name: Optional[str] = None,
-    ) -> FileHistory:
+        metadata: str | None,
+        error: str | None = None,
+        file_name: str | None = None,
+    ) -> None:
         """Create a new file history record.
 
         Args:
@@ -51,31 +57,23 @@ class FileHistoryHelper:
             workflow (Workflow): The associated workflow.
             status (ExecutionStatus): The execution status.
             result (Any): The result from the execution.
-
-        Returns:
-            FileHistory: The newly created file history record.
         """
         try:
-            file_history: FileHistory = FileHistory.objects.create(
+            FileHistory.objects.create(
                 workflow=workflow,
-                cache_key=cache_key,
+                cache_key=file_hash.file_hash,
+                provider_file_uuid=file_hash.provider_file_uuid,
                 status=status,
                 result=str(result),
-                metadata=str(metadata),
+                metadata=str(metadata) if metadata else "",
                 error=str(error) if error else "",
             )
-        except IntegrityError:
+        except IntegrityError as e:
             # TODO: Need to find why duplicate insert is coming
             logger.warning(
-                "Trying to insert duplication data for filename %s for workflow %s",
-                file_name,
-                workflow,
+                f"Trying to insert duplication data for filename {file_name} "
+                f"for workflow {workflow}. Error: {str(e)} with metadata {metadata}",
             )
-            file_history = FileHistoryHelper.get_file_history(
-                workflow=workflow, cache_key=cache_key
-            )
-
-        return file_history
 
     @staticmethod
     def clear_history_for_workflow(

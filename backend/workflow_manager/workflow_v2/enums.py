@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 
 from django.db.models import TextChoices
@@ -14,9 +16,6 @@ class ExecutionStatus(TextChoices):
 
     Statuses:
         PENDING: The execution's entry has been created in the database.
-        QUEUED: The execution task is queued for asynchronous execution
-        INITIATED: The execution has been initiated.
-        READY: The execution is ready for the build phase.
         EXECUTING: The execution is currently in progress.
         COMPLETED: The execution has been successfully completed.
         STOPPED: The execution was stopped by the user
@@ -29,13 +28,21 @@ class ExecutionStatus(TextChoices):
     """
 
     PENDING = "PENDING"
-    INITIATED = "INITIATED"
-    QUEUED = "QUEUED"
-    READY = "READY"
     EXECUTING = "EXECUTING"
     COMPLETED = "COMPLETED"
     STOPPED = "STOPPED"
     ERROR = "ERROR"
+
+    @classmethod
+    def is_completed(cls, status: str | ExecutionStatus) -> bool:
+        """Check if the execution status is completed."""
+        try:
+            status_enum = cls(status)
+        except ValueError:
+            raise ValueError(
+                f"Invalid status: {status}. Must be a valid ExecutionStatus."
+            )
+        return status_enum in [cls.COMPLETED, cls.STOPPED, cls.ERROR]
 
 
 class SchemaType(Enum):

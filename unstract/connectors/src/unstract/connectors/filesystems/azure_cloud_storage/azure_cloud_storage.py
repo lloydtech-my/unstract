@@ -5,7 +5,10 @@ from typing import Any
 import azure.core.exceptions as AzureException
 from adlfs import AzureBlobFileSystem
 
-from unstract.connectors.exceptions import AzureHttpError, ConnectorError
+from unstract.connectors.exceptions import AzureHttpError
+from unstract.connectors.filesystems.azure_cloud_storage.exceptions import (
+    parse_azure_error,
+)
 from unstract.connectors.filesystems.unstract_file_system import UnstractFileSystem
 from unstract.filesystem import FileStorageType, FileSystem
 
@@ -21,6 +24,7 @@ class AzureCloudStorageFS(UnstractFileSystem):
         super().__init__("AzureCloudStorageFS")
         account_name = settings.get("account_name", "")
         access_key = settings.get("access_key", "")
+        self.bucket = settings.get("bucket", "")
         self.azure_fs = AzureBlobFileSystem(
             account_name=account_name, credential=access_key
         )
@@ -67,16 +71,34 @@ class AzureCloudStorageFS(UnstractFileSystem):
     def get_fsspec_fs(self) -> AzureBlobFileSystem:
         return self.azure_fs
 
+    def extract_metadata_file_hash(self, metadata: dict[str, Any]) -> str | None:
+        """Extracts a unique file hash from metadata.
+
+        Args:
+            metadata (dict): Metadata dictionary obtained from fsspec.
+
+        Returns:
+            Optional[str]: The file hash in hexadecimal format or None if not found.
+        """
+        # Extracts content_md5 (Bytearray) for Azure Blob Storage
+        content_md5 = metadata.get("content_settings", {}).get("content_md5")
+        if content_md5:
+            return content_md5.hex()
+        logger.error(
+            f"[Azure Blob Storage] File hash not found for the metadata: {metadata}"
+        )
+        return None
+
     def test_credentials(self) -> bool:
         """To test credentials for Azure Cloud Storage."""
         try:
-            is_dir = bool(self.get_fsspec_fs().isdir(""))
-            if not is_dir:
-                raise RuntimeError("Could not access root directory.")
+            self.get_fsspec_fs().info(self.bucket)
         except Exception as e:
-            raise ConnectorError(
+            logger.error(
                 f"Error from Azure Cloud Storage while testing connection: {str(e)}"
-            ) from e
+            )
+            err = parse_azure_error(e)
+            raise err from e
         return True
 
     def upload_file_to_storage(self, source_path: str, destination_path: str) -> None:

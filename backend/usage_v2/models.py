@@ -61,9 +61,7 @@ class Usage(DefaultOrganizationMixin, BaseModel):
     embedding_tokens = models.IntegerField(
         db_comment="Number of tokens used for embedding"
     )
-    prompt_tokens = models.IntegerField(
-        db_comment="Number of tokens used for the prompt"
-    )
+    prompt_tokens = models.IntegerField(db_comment="Number of tokens used for the prompt")
     completion_tokens = models.IntegerField(
         db_comment="Number of tokens used for the completion"
     )
@@ -79,4 +77,5 @@ class Usage(DefaultOrganizationMixin, BaseModel):
         db_table = "usage"
         indexes = [
             models.Index(fields=["run_id"]),
+            models.Index(fields=["execution_id"]),
         ]

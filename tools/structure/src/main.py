@@ -251,15 +251,43 @@ class StructureTool(BaseTool):
 
         try:
             self.stream_log(
-                "Dumping prompt studio project's output to workflow's storage"
+                f"dbg Dumping prompt studio project's output to workflow's storage at '{output_dir}'"
             )
             output_path = Path(output_dir) / f"{Path(self.source_file_name).stem}.json"
+            # Ensure structured_output is serializable before dumping to file
+            try:
+                # Attempt to serialize to catch errors early, though json_dump will do it too
+                json.dumps(structured_output)
+                self.stream_log(f"dbg Dumping JSON cpmpleted") 
+            except TypeError as te:
+                self.stream_log(
+                f"Error: structured_output is not JSON serializable before file dump: {te}"
+                )
+                self.stream_error_and_exit(f"Error: structured_output is not JSON serializable before file dump: {te}")
+
             self.workflow_filestorage.json_dump(path=output_path, data=structured_output)
+            self.stream_log(f"dbg storage Dumping JSON cpmpleted") 
+
         except OSError as e:
             self.stream_error_and_exit(f"Error creating output file: {e}")
-        except json.JSONDecodeError as e:
-            self.stream_error_and_exit(f"Error encoding JSON: {e}")
-        self.write_tool_result(data=structured_output)
+        except json.JSONDecodeError as e: # Should ideally be TypeError for dumps
+            self.stream_error_and_exit(f"Error encoding JSON for file dump: {e}")
+        except TypeError as te: # Catching TypeErrors from json.dumps or json_dump
+             self.stream_error_and_exit(f"Error: structured_output is not JSON serializable for file dump (TypeError): {te}")
+        except Exception as e: # Catch any other unexpected error during dump
+            self.stream_error_and_exit(f"Unexpected error during file dump: {e}")
+
+        try:
+            # Ensure it's serializable again before writing tool result, if it could have been modified
+            # or if write_tool_result does its own serialization.
+            json.dumps(structured_output)
+            self.write_tool_result(data=structured_output)
+        except TypeError as te:
+            self.stream_error_and_exit(f"Error: structured_output is not JSON serializable for write_tool_result: {te}")
+        except Exception as e:
+            self.stream_error_and_exit(f"Error in write_tool_result: {e}")
+
+        self.stream_log(f"dbg All operations completed successfully for tool '{tool_id}'") 
 
     def _summarize_and_index(
         self,

@@ -164,3 +164,7 @@ Adapter credentials are encrypted by the platform using this key. Its loss or ch
 ## 📊 A note on analytics
 
 In full disclosure, Unstract integrates Posthog to track usage analytics. As you can inspect the relevant code here, we collect the minimum possible metrics. Posthog can be disabled if desired by setting `REACT_APP_ENABLE_POSTHOG` to `false` in the frontend's .env file.
+
+
+## Added Self Note:
+- Recommended Docker RAM >= 10 GB
